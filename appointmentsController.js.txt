@@ -1,0 +1,37 @@
+// controllers/appointmentsController.js
+const db = require('../db');
+
+
+exports.createAppointment = async (req, res) => {
+try {
+const { patient_id, doctor_id, appointment_datetime, reason } = req.body;
+// basic validation: ensure patient and doctor exist
+const [[patient]] = await db.execute('SELECT * FROM patients WHERE patient_id = ?', [patient_id]);
+if (!patient) return res.status(400).json({ error: 'Patient not found' });
+const [[doctor]] = await db.execute('SELECT * FROM doctors WHERE doctor_id = ?', [doctor_id]);
+if (!doctor) return res.status(400).json({ error: 'Doctor not found' });
+
+
+// insert appointment (note unique constraint will prevent double-booking same doctor at same datetime)
+const [result] = await db.execute(
+`INSERT INTO appointments (patient_id, doctor_id, appointment_datetime, reason)
+VALUES (?, ?, ?, ?)`,
+[patient_id, doctor_id, appointment_datetime, reason || null]
+);
+const [rows] = await db.execute('SELECT * FROM appointments WHERE appointment_id = ?', [result.insertId]);
+res.status(201).json(rows[0]);
+} catch (err) {
+console.error(err);
+// detect duplicate booking error (MySQL ER_DUP_ENTRY)
+if (err && err.code === 'ER_DUP_ENTRY') {
+return res.status(409).json({ error: 'Doctor already booked for that datetime' });
+}
+res.status(500).json({ error: err.message });
+}
+};
+
+
+exports.getAllAppointments = async (req, res) => {
+try {
+const [rows] = await db.execute(
+`SELECT a.*, p.first_name AS patient_first_name
